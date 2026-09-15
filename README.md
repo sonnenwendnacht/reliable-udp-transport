@@ -1,7 +1,8 @@
 # Reliable UDP transport study
 
-**Local preparation only — not cleared for public upload.** This folder is a
-tested follow-up to Junzhe Zong's CSEE 4119 Spring 2026 assignment 2. It is not a
+[![Tests](https://github.com/sonnenwendnacht/reliable-udp-transport/actions/workflows/tests.yml/badge.svg)](https://github.com/sonnenwendnacht/reliable-udp-transport/actions/workflows/tests.yml)
+
+A tested follow-up to Junzhe Zong's CSEE 4119 Spring 2026 assignment 2. It is not a
 new independently authored project or a production transport library.
 
 The implementation uses a three-way handshake, a 14-byte header, an Internet
@@ -72,13 +73,26 @@ these checks were present in the submitted assignment.
 - The historical assignment's manual testing claims are preserved, not endorsed
   as independently reproduced. New checks use a separate deterministic proxy.
 
-## Publication status and attribution
+## Validation
 
-The original README identifies Junzhe Zong and the course. Sharing terms for the
-Spring 2026 assignment have not been established. An older offering explicitly
-prohibited public solutions; that is a warning, not proof of the current terms:
-[CSEE 4119 Fall 2020 syllabus](https://www.columbia.edu/~ebk2141/teaching/csee4119/2020FA/2020Fall-4119-info_and_syllabus.pdf).
+All 20 tests passed on Python 3.12.3 and 3.14.0. Fifteen transport scenarios
+passed three repeated runs (45 total) on Python 3.14.0. The recorded run includes
+source hashes and bounded comparisons with the preserved implementation:
+[validation record](validation/validation-py314.json).
 
-Do not push this folder, choose a public license, or copy course material into
-it until the applicable sharing permission is confirmed. This local Git
-repository deliberately has no remote configured.
+To run fresh comparisons locally:
+
+```sh
+python3 validate.py --repeats 3 --baseline --output results/validation.json
+```
+
+Some historical cases intentionally exceed the harness deadline. A timeout
+does not prove a permanent deadlock; the packet-loss diagnostic showed slow
+forward progress. Durations are observations, not portable performance claims.
+
+## Attribution and publication
+
+The original README identifies Junzhe Zong and the course. The project owner
+confirmed publication clearance for this portfolio copy in September 2026.
+This is not an instructor endorsement or permission to submit the code as
+coursework. Course-provided applications, simulator, and data are excluded.
