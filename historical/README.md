@@ -1,0 +1,4 @@
+# CSEE 4119 Spring 2026, Assignment 2
+## Your name: Junzhe Zong
+
+For this assignment, I built a reliable transport protocol using UDP sockets in Python. The client and server both use multithreading so they can handle sending and receiving data at the same time without blocking. I implemented a 3-way handshake to establish the connection and added an Internet checksum to catch and drop any corrupted packets. To deal with dropped packets, I set up a timeout and retransmission system. I also added a sliding window mechanism so the server can advertise its available buffer space, which controls the client's sending rate and prevent the server from getting overwhelmed.

@@ -1,0 +1,4 @@
+# CSEE 4119 Spring 2026, Assignment 2 Design File
+## Your name: Junzhe Zong
+
+For the design, I split the client and server into multiple threads so they can handle incoming packets and application data at the same time. I created a custom Segment class to pack the sequence numbers, acknowledgments, and flags into a 14-byte header, along with an internet checksum for error detection. Flow control is done by a sliding window, where the server calculates its remaining buffer space, and advertises it in every ACK, and the client strictly limits its unacknowledged bytes to match the window. When a packet is dropped or delayed, a dedicated timer tracks the timeout and triggers a resend of the unacknowledged data to guarantee delivery.

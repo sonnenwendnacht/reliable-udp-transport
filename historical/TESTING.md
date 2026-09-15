@@ -1,0 +1,4 @@
+# CSEE 4119 Spring 2026, Assignment 2 Testing File
+## Your name: Junzhe Zong
+
+I tested the protocol in a few different stages to make sure everything works. First, I ran the client and server locally without the network simulator to verify that the basic connection, sliding window, and file transfer of the 8000-byte payload works correctly. Next, I routed the connection through the network simulator with an empty loss file to ensure the proxy setup and port forwarding functioned properly. Finally, I used a populated loss file with the network simulator to introduce packet drops and corruption. The client successfully detected the missing ACKs, timed out, and retransmitted the lost segments, and the server successfully dropped the corrupted ones, keeping the entire file intact. 
