@@ -6,14 +6,17 @@ from segment import Segment
 from timer import Timer
 
 class Client:
-    def init(self, src_port, dst_addr, dst_port, segment_size):
+    def init(self, src_port, dst_addr, dst_port, segment_size, bind_addr="127.0.0.1"):
+        if not Segment.HEADER_SIZE < segment_size <= 2048:
+            raise ValueError("segment_size must be between 15 and 2048 bytes")
         self.src_port = src_port
-        self.dst_addr = dst_addr
+        self.dst_addr = socket.gethostbyname(dst_addr)
         self.dst_port = dst_port
         self.segment_size = segment_size
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('', self.src_port))
+        self.sock.bind((bind_addr, self.src_port))
+        self.src_port = self.sock.getsockname()[1]
         self.sock.settimeout(0.1) 
         
         self.state = "CLOSED"
@@ -24,6 +27,7 @@ class Client:
         self.send_window_size = 2048 
         self.unacked_segments = {} 
         self.timer = Timer(0.5)
+        self.last_window_probe = time.monotonic()
         
         self.lock = threading.Lock()
         
@@ -35,7 +39,11 @@ class Client:
     def rcv_and_sgmnt_handler(self):
         while self.running:
             try:
-                data, _ = self.sock.recvfrom(self.segment_size)
+                data, addr = self.sock.recvfrom(65535)
+                if addr != (self.dst_addr, self.dst_port):
+                    continue
+                if len(data) < Segment.HEADER_SIZE or len(data) > self.segment_size:
+                    continue
                 seg = Segment.deserialize(data)
 
                 # log
@@ -66,7 +74,7 @@ class Client:
                         self.send_window_size = seg.window # Update window size
                         
                         # ACK logic
-                        if seg.ack_num > self.base_seq_num:
+                        if self.base_seq_num < seg.ack_num <= self.seq_num:
                             self.base_seq_num = seg.ack_num
                             # Remove all acknowledged segments from unacked dict
                             keys_to_remove = [k for k in self.unacked_segments if k < self.base_seq_num]
@@ -96,13 +104,13 @@ class Client:
             with self.lock:
                 if self.state in ["ESTABLISHED", "SYN_SENT", "FIN_WAIT"] and self.timer.timeout():
                     if self.state == "ESTABLISHED" and self.unacked_segments:
-                        # GBN
-                        oldest_seq = min(self.unacked_segments.keys())
-                        seg_bytes = self.unacked_segments[oldest_seq]
-                        self.sock.sendto(seg_bytes, (self.dst_addr, self.dst_port))
-                        # log
-                        re_seg = Segment.deserialize(seg_bytes)
-                        self.log_file.write(f"snd {re_seg.seq_num} {re_seg.ack_num} {re_seg.flags} {re_seg.window}\n")
+                        # The receiver discards out-of-order packets: Go-Back-N
+                        # must resend the outstanding window, not just one packet.
+                        for seq in sorted(self.unacked_segments):
+                            seg_bytes = self.unacked_segments[seq]
+                            self.sock.sendto(seg_bytes, (self.dst_addr, self.dst_port))
+                            re_seg = Segment.deserialize(seg_bytes)
+                            self.log_file.write(f"snd {re_seg.seq_num} {re_seg.ack_num} {re_seg.flags} {re_seg.window}\n")
                         self.log_file.flush()
                         #
                     elif self.state == "SYN_SENT":
@@ -146,8 +154,8 @@ class Client:
             sent_this_round = False
             with self.lock:
                 # send only if within window
-                if (self.seq_num - self.base_seq_num) + payload_size <= self.send_window_size:
-                    chunk = data[i:i+payload_size]
+                chunk = data[i:i+min(payload_size, self.send_window_size)]
+                if chunk and (self.seq_num - self.base_seq_num) + len(chunk) <= self.send_window_size:
                     seg = Segment(seq_num=self.seq_num, flags=Segment.DAT, data=chunk)
                     seg_bytes = seg.serialize()
                     
@@ -164,6 +172,12 @@ class Client:
                     self.seq_num += len(chunk)
                     i += len(chunk)
                     sent_this_round = True
+                elif (self.send_window_size == 0 and not self.unacked_segments
+                      and time.monotonic() - self.last_window_probe >= self.timer.duration):
+                    # A lost window-update ACK must not stall an idle sender.
+                    probe = Segment(seq_num=self.seq_num, flags=Segment.DAT)
+                    self.sock.sendto(probe.serialize(), (self.dst_addr, self.dst_port))
+                    self.last_window_probe = time.monotonic()
             
             # yield lock ONLY if the window was full and we couldn't send
             if not sent_this_round:
@@ -175,6 +189,8 @@ class Client:
                 if not self.unacked_segments:
                     break
             time.sleep(0.01)
+
+        return len(data)
 
     def close(self):
         with self.lock:
@@ -194,8 +210,6 @@ class Client:
             time.sleep(0.01)
         self.running = False
         self.rcv_thread.join()
+        self.sock.close()
 
         self.log_file.close() # log
-
-
-

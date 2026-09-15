@@ -6,10 +6,14 @@ import struct
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from segment import Segment
+from mrt_client import Client
+from mrt_server import Server
+from timer import Timer
 
 
 class SegmentTests(unittest.TestCase):
@@ -51,10 +55,31 @@ class TransportTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertTrue(report["correct"])
 
+    def test_invalid_segment_sizes(self):
+        for size in [-1, 0, 14, 2049]:
+            with self.assertRaises(ValueError):
+                Client().init(0, "127.0.0.1", 12345, size)
+
+    def test_invalid_receive_buffer(self):
+        for size in [-1, 0, 65536]:
+            with self.assertRaises(ValueError):
+                Server().init(0, size)
+
+    def test_monotonic_timer(self):
+        timer = Timer(0.5)
+        self.assertFalse(timer.timeout())
+        with patch("timer.time.monotonic", side_effect=[100, 100.49, 100.51]):
+            timer.start()
+            self.assertFalse(timer.timeout())
+            self.assertTrue(timer.timeout())
+        timer.stop()
+        self.assertFalse(timer.timeout())
+
 
 CASES = ["clean", "empty", "drop_syn", "drop_syn_ack", "drop_handshake_ack",
          "drop_data", "drop_data_ack", "corrupt_data", "duplicate_data",
-         "short_server", "short_client", "small_window", "drop_fin_ack"]
+         "short_server", "short_client", "small_window", "drop_fin_ack",
+         "narrow_buffer", "drop_window_update"]
 for name in CASES:
     setattr(TransportTests, "test_" + name, lambda self, case=name: self.run_case(case))
 

@@ -8,7 +8,7 @@ class Timer:
         self.is_running = False
 
     def start(self):
-        self.start_time = time.time()
+        self.start_time = time.monotonic()
         self.is_running = True
 
     def stop(self):
@@ -17,4 +17,4 @@ class Timer:
     def timeout(self):
         if not self.is_running:
             return False
-        return time.time() - self.start_time>=self.duration
+        return time.monotonic() - self.start_time>=self.duration

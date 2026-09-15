@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument("case")
 parser.add_argument("--historical", action="store_true")
+parser.add_argument("--diagnostic", action="store_true")
 args = parser.parse_args()
 sys.path.insert(0, str(ROOT / "historical" if args.historical else ROOT))
 from mrt_client import Client
@@ -34,6 +35,7 @@ class Proxy:
         self.injected = 0
         self.fin_seen = False
         self.data_packets = 0
+        self.zero_window_seen = False
         self.worker = threading.Thread(target=self.run, daemon=True)
 
     def run(self):
@@ -51,6 +53,8 @@ class Proxy:
                 self.fin_seen = True
             if not from_server and seg.flags == Segment.DAT:
                 self.data_packets += 1
+            if from_server and seg.flags == Segment.ACK and seg.window == 0 and seg.ack_num > 0:
+                self.zero_window_seen = True
             matches = {
                 "drop_syn": not from_server and seg.flags == Segment.SYN,
                 "drop_syn_ack": from_server and seg.flags == (Segment.SYN | Segment.ACK),
@@ -62,6 +66,7 @@ class Proxy:
                 "duplicate_data": not from_server and seg.flags == Segment.DAT,
                 "short_server": not from_server and seg.flags == Segment.SYN,
                 "short_client": from_server and seg.flags == (Segment.SYN | Segment.ACK),
+                "drop_window_update": from_server and self.zero_window_seen and seg.flags == Segment.ACK and seg.window > 0,
             }
             if not self.injected and matches.get(self.case, False):
                 self.injected += 1
@@ -84,7 +89,10 @@ def run():
     if args.case == "empty":
         payload = b""
     server = Server()
-    server.init(0, 32 if args.case == "small_window" else 4096)
+    window = 32 if args.case in {"small_window", "narrow_buffer"} else 4096
+    if args.case == "drop_window_update":
+        window = 114
+    server.init(0, window)
     server_addr = ("127.0.0.1", server.sock.getsockname()[1])
     proxy = Proxy(server_addr, args.case)
     proxy.worker.start()
@@ -93,8 +101,24 @@ def run():
     client.init(0, "127.0.0.1", proxy.port, 128)
     received = []
 
+    if args.diagnostic:
+        def diagnostic():
+            while client.running:
+                time.sleep(2)
+                print(json.dumps({"client_state": client.state,
+                                  "server_state": server.state,
+                                  "sent": client.seq_num,
+                                  "acked": client.base_seq_num,
+                                  "expected": server.expected_seq,
+                                  "window": client.send_window_size,
+                                  "unacked": len(client.unacked_segments),
+                                  "injected": proxy.injected}), file=sys.stderr, flush=True)
+        threading.Thread(target=diagnostic, daemon=True).start()
+
     def receiver():
         conn = server.accept()
+        if args.case == "drop_window_update":
+            time.sleep(0.15)
         received.append(server.receive(conn, len(payload)))
 
     reader = threading.Thread(target=receiver, daemon=True)
@@ -113,7 +137,7 @@ def run():
     # Historical close() does not close sockets; keep the harness leak-free.
     client.sock.close()
     server.sock.close()
-    if args.case not in {"clean", "empty", "small_window"}:
+    if args.case not in {"clean", "empty", "small_window", "narrow_buffer"}:
         assert proxy.injected == 1, "requested fault was not exercised"
     return {
         "case": args.case,

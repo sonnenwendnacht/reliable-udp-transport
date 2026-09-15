@@ -5,11 +5,14 @@ import time
 from segment import Segment
 
 class Server:
-    def init(self, src_port, receive_buffer_size):
+    def init(self, src_port, receive_buffer_size, bind_addr="127.0.0.1"):
+        if not 0 < receive_buffer_size <= 65535:
+            raise ValueError("receive_buffer_size must be between 1 and 65535 bytes")
         self.src_port = src_port
         self.receive_buffer_size = receive_buffer_size
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('', self.src_port))
+        self.sock.bind((bind_addr, self.src_port))
+        self.src_port = self.sock.getsockname()[1]
         self.sock.settimeout(0.1)
         self.receive_buffer = []
         self.data_buffer = bytearray()
@@ -27,7 +30,9 @@ class Server:
     def rcv_handler(self):
         while self.running:
             try:
-                data, addr = self.sock.recvfrom(2048)
+                data, addr = self.sock.recvfrom(65535)
+                if len(data) < Segment.HEADER_SIZE or len(data) > 2048:
+                    continue
                 with self.lock:
                     self.receive_buffer.append((data, addr))
             except socket.timeout:
@@ -54,6 +59,8 @@ class Server:
                     #
 
                 with self.lock:
+                    if self.client_addr is not None and addr != self.client_addr:
+                        continue
                     current_window = max(0, self.receive_buffer_size - len(self.data_buffer))
                     
                     if self.state == "LISTEN" and (seg.flags & Segment.SYN):
@@ -80,6 +87,7 @@ class Server:
                         if seg.seq_num == self.expected_seq and len(seg.data) <= current_window:
                             self.data_buffer.extend(seg.data)
                             self.expected_seq += len(seg.data)
+                        current_window = max(0, self.receive_buffer_size - len(self.data_buffer))
                             
                         ack_seg = Segment(ack_num=self.expected_seq, flags=Segment.ACK, window=current_window)
                         self.sock.sendto(ack_seg.serialize(), self.client_addr)
@@ -88,7 +96,7 @@ class Server:
                         self.log_file.flush()
                         #
                         
-                    elif self.state == "ESTABLISHED" and (seg.flags & Segment.FIN):
+                    elif self.state in ("ESTABLISHED", "CLOSED") and (seg.flags & Segment.FIN):
                         self.state = "CLOSED"
                         ack_seg = Segment(flags=Segment.ACK, window=current_window)
                         self.sock.sendto(ack_seg.serialize(), self.client_addr)
@@ -154,5 +162,5 @@ class Server:
         self.rcv_thread.join()
         if hasattr(self, 'sgmnt_thread'):
             self.sgmnt_thread.join()
+        self.sock.close()
         self.log_file.close()
-
