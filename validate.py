@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parent
 CASES = ["clean", "empty", "drop_syn", "drop_syn_ack", "drop_handshake_ack",
          "drop_data", "drop_data_ack", "corrupt_data", "duplicate_data",
          "short_server", "short_client", "small_window", "drop_fin_ack",
-         "narrow_buffer", "drop_window_update"]
+         "narrow_buffer", "drop_window_update", "drop_handshake_ack_empty",
+         "closed_before_accept"]
 
 
 def measure(case, historical, deadline):

@@ -49,6 +49,11 @@ changes, made with Codex assistance in September 2026, are:
 - Retransmit the outstanding window after a timeout. Sending only its oldest
   segment caused very slow recovery because the receiver discarded the rest.
 - Acknowledge repeated client FINs while the server remains running.
+- Let a valid selected-peer FIN confirm a pending handshake when its final ACK
+  was lost; empty streams can then close without needing a data packet.
+- Remember completed handshakes so `accept()` still returns if the peer closed
+  before the application started accepting. Buffered bytes remain readable,
+  followed by EOF.
 - Use a monotonic retransmission clock, close UDP sockets, return the sent byte
   count, and bind to localhost by default. Explicit `bind_addr` can override it.
 - Add independent checksum checks, bounded fault-injection scenarios, and
@@ -63,6 +68,10 @@ these checks were present in the submitted assignment.
   encryption, sequence-number wraparound, or network-path discovery.
 - The APIs can wait indefinitely when a peer disappears or loss persists. The
   test subprocess deadline does not add a runtime connection deadline.
+- If the final handshake ACK is lost and the client remains idle (sends neither
+  data nor FIN), server `accept()` can still wait indefinitely. The server has
+  no periodic SYN-ACK retransmission timer; the new FIN case is not a general
+  idle-handshake recovery mechanism.
 - Teardown tests exercise **client-initiated close with the server kept alive**
   until the client finishes. Server-initiated close, simultaneous close, delayed
   duplicate acknowledgments during teardown, and FIN recovery after server
@@ -75,10 +84,20 @@ these checks were present in the submitted assignment.
 
 ## Validation
 
-All 20 tests passed on Python 3.12.3 and 3.14.0. Fifteen transport scenarios
-passed three repeated runs (45 total) on Python 3.14.0. The recorded run includes
-source hashes and bounded comparisons with the preserved implementation:
-[validation record](validation/validation-py314.json).
+All 22 tests passed on Python 3.12.3 and 3.14.0. Seventeen transport scenarios
+passed three repeated runs (51 total) on Python 3.14.0. The
+[September 16 validation record](validation/validation-2026-09-16-py314.json)
+contains source hashes and results for the current implementation.
+
+The two new regression cases are `drop_handshake_ack_empty` (drop exactly one
+handshake ACK, send no DAT packets, then close and reach EOF) and
+`closed_before_accept` (finish sending and closing before accepting, then read
+the buffered five bytes and EOF). Both exceeded the bounded regression
+deadline against the pre-fix maintained source before passing with these fixes.
+
+The earlier [45-scenario record](validation/validation-py314.json) is preserved
+unchanged. It includes bounded comparisons with the original assignment, not
+the intermediate maintained source used for the two new regressions.
 
 To run fresh comparisons locally:
 

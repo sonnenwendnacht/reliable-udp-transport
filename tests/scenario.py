@@ -59,6 +59,7 @@ class Proxy:
                 "drop_syn": not from_server and seg.flags == Segment.SYN,
                 "drop_syn_ack": from_server and seg.flags == (Segment.SYN | Segment.ACK),
                 "drop_handshake_ack": not from_server and seg.flags == Segment.ACK,
+                "drop_handshake_ack_empty": not from_server and seg.flags == Segment.ACK,
                 "drop_data": not from_server and seg.flags == Segment.DAT,
                 "drop_data_ack": from_server and seg.flags == Segment.ACK and seg.ack_num > 0,
                 "drop_fin_ack": from_server and self.fin_seen and seg.flags == Segment.ACK,
@@ -84,9 +85,9 @@ class Proxy:
 
 def run():
     payload = bytes((i * 31) % 256 for i in range(8024))
-    if args.case == "small_window":
+    if args.case in {"small_window", "closed_before_accept"}:
         payload = b"hello"
-    if args.case == "empty":
+    if args.case in {"empty", "drop_handshake_ack_empty"}:
         payload = b""
     server = Server()
     window = 32 if args.case in {"small_window", "narrow_buffer"} else 4096
@@ -120,16 +121,27 @@ def run():
         if args.case == "drop_window_update":
             time.sleep(0.15)
         received.append(server.receive(conn, len(payload)))
+        if args.case in {"closed_before_accept", "drop_handshake_ack_empty"}:
+            assert server.receive(conn, 1) == b"", "closed stream did not reach EOF"
 
     reader = threading.Thread(target=receiver, daemon=True)
-    reader.start()
+    if args.case != "closed_before_accept":
+        reader.start()
     started = time.monotonic()
     client.connect()
     client.send(payload)
+    close_before_read = args.case in {"closed_before_accept", "drop_handshake_ack_empty"}
+    if close_before_read:
+        client.close()
+        assert server.state == "CLOSED", "client close did not reach server"
+        if args.case == "closed_before_accept":
+            assert bytes(server.data_buffer) == payload, "payload was not buffered before accept"
+            reader.start()
     reader.join(2)
     assert not reader.is_alive(), "receiver did not finish"
     assert received == [payload], "payload differs"
-    client.close()
+    if not close_before_read:
+        client.close()
     server.close()
     proxy.running = False
     proxy.worker.join(1)
@@ -137,8 +149,10 @@ def run():
     # Historical close() does not close sockets; keep the harness leak-free.
     client.sock.close()
     server.sock.close()
-    if args.case not in {"clean", "empty", "small_window", "narrow_buffer"}:
+    if args.case not in {"clean", "empty", "small_window", "narrow_buffer", "closed_before_accept"}:
         assert proxy.injected == 1, "requested fault was not exercised"
+    if args.case == "drop_handshake_ack_empty":
+        assert proxy.data_packets == 0, "empty handshake recovery used application data"
     return {
         "case": args.case,
         "source": "historical" if args.historical else "prepared",

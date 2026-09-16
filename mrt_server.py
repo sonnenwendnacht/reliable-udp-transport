@@ -17,6 +17,7 @@ class Server:
         self.receive_buffer = []
         self.data_buffer = bytearray()
         self.state = "LISTEN"
+        self._connection_established = False
         self.client_addr = None
         self.running = True
         self.expected_seq = 0
@@ -79,8 +80,11 @@ class Server:
                             self.sock.sendto(syn_ack_seg.serialize(), self.client_addr)
                             self.log_file.write(f"snd {syn_ack_seg.seq_num} {syn_ack_seg.ack_num} {syn_ack_seg.flags} {syn_ack_seg.window}\n")
                             self.log_file.flush()
-                        elif (seg.flags & (Segment.ACK | Segment.DAT)):
+                        elif (seg.flags & (Segment.ACK | Segment.DAT | Segment.FIN)):
+                            # Data or FIN also confirms receipt of our SYN-ACK
+                            # when the final handshake ACK was lost.
                             self.state = "ESTABLISHED"
+                            self._connection_established = True
                     
                     if self.state == "ESTABLISHED" and (seg.flags & Segment.DAT):
                         # only accept if expected sequence AND within window size
@@ -113,7 +117,9 @@ class Server:
     def accept(self):
         while True:
             with self.lock:
-                if self.state == "ESTABLISHED":
+                # The peer may finish before the application is scheduled;
+                # preserve its established connection and buffered bytes/EOF.
+                if self._connection_established:
                     break
             time.sleep(0.01)
         return self.client_addr
