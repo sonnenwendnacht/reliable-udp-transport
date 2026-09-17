@@ -6,14 +6,24 @@ from segment import Segment
 
 class Server:
     def init(self, src_port, receive_buffer_size, bind_addr="127.0.0.1"):
-        if not 0 < receive_buffer_size <= 65535:
-            raise ValueError("receive_buffer_size must be between 1 and 65535 bytes")
+        if (not isinstance(receive_buffer_size, int) or isinstance(receive_buffer_size, bool)
+                or not 0 < receive_buffer_size <= 65535):
+            raise ValueError("receive_buffer_size must be an integer between 1 and 65535 bytes")
         self.src_port = src_port
         self.receive_buffer_size = receive_buffer_size
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((bind_addr, self.src_port))
-        self.src_port = self.sock.getsockname()[1]
-        self.sock.settimeout(0.1)
+        try:
+            self.sock.bind((bind_addr, self.src_port))
+            self.src_port = self.sock.getsockname()[1]
+            self.sock.settimeout(0.1)
+            self.log_file = open(f"log_{self.src_port}.txt", "w")
+        except BaseException:
+            # No worker owns the socket until all acquisition steps succeed.
+            try:
+                self.sock.close()
+            except OSError:
+                pass  # Keep the original initialization failure.
+            raise
         self.receive_buffer = []
         self.data_buffer = bytearray()
         self.state = "LISTEN"
@@ -22,7 +32,6 @@ class Server:
         self.running = True
         self.expected_seq = 0
         self.lock = threading.Lock()
-        self.log_file = open(f"log_{self.src_port}.txt", "w") # log
         self.rcv_thread = threading.Thread(target=self.rcv_handler)
         self.rcv_thread.start()
         self.sgmnt_thread = threading.Thread(target=self.sgmnt_handler)

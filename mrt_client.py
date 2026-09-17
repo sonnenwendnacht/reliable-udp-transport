@@ -7,17 +7,27 @@ from timer import Timer
 
 class Client:
     def init(self, src_port, dst_addr, dst_port, segment_size, bind_addr="127.0.0.1"):
-        if not Segment.HEADER_SIZE < segment_size <= 2048:
-            raise ValueError("segment_size must be between 15 and 2048 bytes")
+        if (not isinstance(segment_size, int) or isinstance(segment_size, bool)
+                or not Segment.HEADER_SIZE < segment_size <= 2048):
+            raise ValueError("segment_size must be an integer between 15 and 2048 bytes")
         self.src_port = src_port
         self.dst_addr = socket.gethostbyname(dst_addr)
         self.dst_port = dst_port
         self.segment_size = segment_size
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((bind_addr, self.src_port))
-        self.src_port = self.sock.getsockname()[1]
-        self.sock.settimeout(0.1) 
+        try:
+            self.sock.bind((bind_addr, self.src_port))
+            self.src_port = self.sock.getsockname()[1]
+            self.sock.settimeout(0.1)
+            self.log_file = open(f"log_{self.src_port}.txt", "w")
+        except BaseException:
+            # No worker owns the socket until all acquisition steps succeed.
+            try:
+                self.sock.close()
+            except OSError:
+                pass  # Keep the original initialization failure.
+            raise
         
         self.state = "CLOSED"
         self.running = True
@@ -31,8 +41,6 @@ class Client:
         
         self.lock = threading.Lock()
         
-        self.log_file = open(f"log_{self.src_port}.txt", "w") # log
-
         self.rcv_thread = threading.Thread(target=self.rcv_and_sgmnt_handler)
         self.rcv_thread.start()
 

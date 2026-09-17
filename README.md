@@ -14,7 +14,7 @@ data; the maintained sender retransmits its outstanding window (Go-Back-N).
 [Run locally](#run-locally) · [Validation](#validation) ·
 [Original work and maintenance](#what-was-preserved-and-what-changed) · [Limits](#limitations)
 
-Validation covers 22 tests and 17 localhost scenarios repeated three times
+Validation covers 27 tests and 17 localhost scenarios repeated three times
 (51 runs), including lost packets, corruption, small windows, and close/accept
 regressions. This is
 an educational transport, not a production library or a claim of arbitrary-loss
@@ -66,6 +66,9 @@ changes, made with Codex assistance in September 2026, are:
   followed by EOF.
 - Use a monotonic retransmission clock, close UDP sockets, return the sent byte
   count, and bind to localhost by default. Explicit `bind_addr` can override it.
+- Reject non-integer byte-count configuration before allocating resources;
+  close the allocated socket if binding, socket configuration, or log opening
+  fails, without starting workers or masking the original error.
 - Add independent checksum checks, bounded fault-injection scenarios, and
   configuration tests.
 
@@ -94,12 +97,24 @@ these checks were present in the submitted assignment.
 
 ## Validation
 
-All 22 tests passed on Python 3.12.3 and 3.14.0. Seventeen transport scenarios
-passed three repeated runs (51 total) on Python 3.14.0. The
-[September 16 validation record](validation/validation-2026-09-16-py314.json)
-contains source hashes and results for the current implementation.
+All 27 tests passed on Python 3.12.3 and 3.14.0. Seventeen transport scenarios
+passed three repeated runs (51 total) on Python 3.14.0 after the initialization
+fixes. Five initialization test methods cover invalid types, valid integer
+boundaries, acquisition failures, and preservation of the original exception
+even if socket cleanup also raises an `OSError`. These tests inject failures
+with mock resources and verify that workers are not started when acquisition
+fails. The integer-boundary control passed before the fixes; the other four
+test methods exposed failures against maintained commit `7b22598`.
 
-The two new regression cases are `drop_handshake_ack_empty` (drop exactly one
+This initialization-only change does not add connection deadlines or establish
+recovery from worker startup failures. Sizes must be Python integers (not
+booleans): 15–2,048 bytes for client segments, 1–65,535 for the server buffer.
+
+The [earlier September 16 validation record](validation/validation-2026-09-16-py314.json)
+preserves source hashes and scenario results from before the initialization
+fixes; it does not describe the current source hashes.
+
+The earlier handshake/accept regression cases are `drop_handshake_ack_empty` (drop exactly one
 handshake ACK, send no DAT packets, then close and reach EOF) and
 `closed_before_accept` (finish sending and closing before accepting, then read
 the buffered five bytes and EOF). Both exceeded the bounded regression
