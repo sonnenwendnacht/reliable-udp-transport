@@ -2,13 +2,23 @@
 
 [![Tests](https://github.com/sonnenwendnacht/reliable-udp-transport/actions/workflows/tests.yml/badge.svg)](https://github.com/sonnenwendnacht/reliable-udp-transport/actions/workflows/tests.yml)
 
-A tested follow-up to Junzhe Zong's CSEE 4119 Spring 2026 assignment 2. It is not a
-new independently authored project or a production transport library.
+A Python transport over UDP, developed for Junzhe Zong's CSEE 4119 Spring 2026
+assignment 2 and maintained with deterministic packet-fault tests. The original
+implementation and assignment write-ups are preserved separately.
 
 The implementation uses a three-way handshake, a 14-byte header, an Internet
 checksum, cumulative byte acknowledgments, a receive window, and timeout-based
 retransmission. The receiver accepts in-order bytes and discards out-of-order
-data; the prepared sender retransmits its outstanding window (Go-Back-N).
+data; the maintained sender retransmits its outstanding window (Go-Back-N).
+
+[Run locally](#run-locally) · [Validation](#validation) ·
+[Original work and maintenance](#what-was-preserved-and-what-changed) · [Limits](#limitations)
+
+Validation covers 22 tests and 17 localhost scenarios repeated three times
+(51 runs), including lost packets, corruption, small windows, and close/accept
+regressions. This is
+an educational transport, not a production library or a claim of arbitrary-loss
+reliability.
 
 ## Run locally
 
